@@ -1,0 +1,279 @@
+# SystemNotification.java
+
+## Review
+
+## 1. Summary
+
+`SystemNotification` is a JPA entity that represents a notification record in the SalesManager application.  
+It captures the configuration key/value pair of a system notification, optional association with a `MerchantStore` or `User`, and optional start/end dates for the notification’s validity.  Auditing is handled via an embedded `AuditSection` and an `AuditListener`.  
+Key components:
+
+| Component | Role |
+|-----------|------|
+| `@Entity` | Declares the class as a JPA entity. |
+| `@Table` / `@UniqueConstraint` | Enforces a unique combination of `MERCHANT_ID` and `CONFIG_KEY`. |
+| `@TableGenerator` / `@GeneratedValue` | Generates surrogate primary keys via a table‑based sequence. |
+| `@Embedded AuditSection` | Stores creation/modification timestamps and user IDs. |
+| `AuditListener` | Populates the `AuditSection` automatically. |
+| `SalesManagerEntity` | Base class that provides common fields and helper methods (e.g., `equals`, `hashCode`). |
+
+The class follows a classic **Entity‑DTO** pattern: it’s a simple data holder with no business logic, making it ideal for persistence and transfer across layers.
+
+---
+
+## 2. Detailed Description
+
+### Core Components
+1. **Entity Definition**  
+   The class is annotated with `@Entity` and `@Table` to map it to the `SYSTEM_NOTIFICATION` database table.  
+   A unique constraint on `(MERCHANT_ID, CONFIG_KEY)` guarantees that each merchant can have only one notification per key.
+
+2. **Primary Key Generation**  
+   Uses a table‑based sequence (`SM_SEQUENCER`) via `@TableGenerator`.  
+   This approach is portable across databases that don’t support sequences (e.g., MySQL).
+
+3. **Relationships**  
+   - `MerchantStore` and `User` are optional (`nullable=true`).  
+   - Both relationships use `FetchType.LAZY` to avoid unnecessary data loading.
+
+4. **Temporal Fields**  
+   `startDate` and `endDate` are stored as `DATE` types, capturing the period in which the notification is active.
+
+5. **Auditing**  
+   The embedded `AuditSection` holds audit metadata. `AuditListener` is configured with `@EntityListeners` to automatically fill audit fields on persist/update events.
+
+### Execution Flow
+1. **Instantiation** – The application creates a new `SystemNotification` instance, optionally sets relationships and dates.
+2. **Persist** – JPA provider calls `@PrePersist`/`@PreUpdate` hooks via `AuditListener`, populating the `AuditSection`.
+3. **Database Interaction** – Hibernate (or other JPA provider) inserts or updates the row in `SYSTEM_NOTIFICATION`.  
+   The unique constraint enforces data integrity at the database level.
+4. **Retrieval** – On fetching, lazy associations remain uninitialized until accessed, preventing eager loading overhead.
+5. **Cleanup** – Standard JPA lifecycle; no explicit cleanup required beyond normal garbage collection.
+
+### Assumptions & Constraints
+- The database supports table‑based sequences (`SM_SEQUENCER`).
+- `User` and `MerchantStore` entities are properly mapped and available.
+- Auditing logic in `AuditListener` correctly handles null/blank values.
+- The `startDate`/`endDate` logic is enforced at the application layer (not shown here).
+
+### Architecture & Design Choices
+- **Separation of Concerns**: Business logic is isolated from persistence; the entity only contains data.
+- **Reusability**: By extending `SalesManagerEntity`, common behavior (like `equals`/`hashCode`) is shared.
+- **Portability**: Table‑based ID generation and `FetchType.LAZY` make the entity database‑agnostic and performance‑friendly.
+
+---
+
+## 3. Functions/Methods
+
+| Method | Purpose | Parameters | Returns | Side Effects |
+|--------|---------|------------|---------|--------------|
+| `getId()` | Retrieve the primary key | – | `Long` | – |
+| `setId(Long)` | Set the primary key | `Long id` | – | – |
+| `getKey()` | Get configuration key | – | `String` | – |
+| `setKey(String)` | Set configuration key | `String key` | – | – |
+| `getValue()` | Get configuration value | – | `String` | – |
+| `setValue(String)` | Set configuration value | `String value` | – | – |
+| `getStartDate()` | Get start date | – | `Date` | – |
+| `setStartDate(Date)` | Set start date | `Date startDate` | – | – |
+| `getEndDate()` | Get end date | – | `Date` | – |
+| `setEndDate(Date)` | Set end date | `Date endDate` | – | – |
+| `getMerchantStore()` | Get associated merchant | – | `MerchantStore` | – |
+| `setMerchantStore(MerchantStore)` | Set merchant | `MerchantStore merchantStore` | – | – |
+| `getUser()` | Get associated user | – | `User` | – |
+| `setUser(User)` | Set user | `User user` | – | – |
+| `getAuditSection()` | Get audit data | – | `AuditSection` | – |
+| `setAuditSection(AuditSection)` | Set audit data | `AuditSection auditSection` | – | – |
+
+All methods are straightforward getters/setters; there are no business‑logic methods.  
+The class is **immutable** in terms of its identity after persistence because `id` is generated by the database; however, other fields can be modified.
+
+---
+
+## 4. Dependencies
+
+| Dependency | Category | Notes |
+|------------|----------|-------|
+| `javax.persistence.*` | Standard (JPA) | Core annotations for entity mapping. |
+| `com.salesmanager.core.constants.SchemaConstant` | Project‑specific | Defines schema names or constants (unused directly in this snippet). |
+| `com.salesmanager.core.model.common.audit.*` | Project‑specific | Auditing framework: `AuditListener`, `AuditSection`, `Auditable`. |
+| `com.salesmanager.core.model.generic.SalesManagerEntity` | Project‑specific | Base entity providing common fields (e.g., `equals`, `hashCode`). |
+| `com.salesmanager.core.model.merchant.MerchantStore` | Project‑specific | Related entity. |
+| `com.salesmanager.core.model.user.User` | Project‑specific | Related entity. |
+
+All dependencies are either part of the Java EE/Jakarta EE specification or internal to the SalesManager codebase. No external third‑party libraries are referenced directly.
+
+---
+
+## 5. Additional Notes
+
+### Strengths
+- **Clear separation of data and behavior** – The entity only stores state.
+- **Auditing integration** – Automated audit handling reduces boilerplate.
+- **Portability** – Table‑based sequence generation works on most relational databases.
+- **Lazy loading** – Improves performance by deferring fetches of associated `MerchantStore`/`User`.
+
+### Potential Weaknesses / Edge Cases
+1. **Null Handling** – `startDate`/`endDate` are optional but no validation is performed. An end date before a start date could lead to logical errors elsewhere.
+2. **Business Rules** – The unique constraint only covers `MERCHANT_ID` and `CONFIG_KEY`. If a global (store‑agnostic) notification is needed (`MERCHANT_ID` null), uniqueness is not enforced. The design assumes at most one notification per key per merchant.
+3. **Audit Section Exposure** – The entity exposes the mutable `AuditSection`. External callers could inadvertently modify audit fields, potentially bypassing the listener logic.
+4. **Date Granularity** – Using `TemporalType.DATE` strips time information. If notifications need to be time‑specific, `TIMESTAMP` might be preferable.
+5. **Equals/HashCode Implementation** – Relying on `SalesManagerEntity` implementation; ensure it uses the `id` only after persistence to avoid hash collisions in collections.
+
+### Future Enhancements
+- **Validation Annotations** – Add `@NotNull`, `@PastOrPresent`, or custom constraints for dates.
+- **Immutability** – Make audit fields read‑only to the outside world; expose only getters.
+- **DTO Layer** – Create a separate DTO for API exposure to hide internal IDs and associations.
+- **Soft Delete** – Add a `deleted` flag and adjust queries accordingly.
+- **Notification Types** – Introduce an enum for `key` to enforce a finite set of configuration keys.
+
+Overall, the `SystemNotification` entity is cleanly implemented, follows best practices for JPA entities, and integrates well with the SalesManager auditing infrastructure.
+
+## Code Critique
+
+
+
+## Code Preview
+
+```java
+package com.salesmanager.core.model.system;
+
+import java.io.Serializable;
+import java.util.Date;
+
+import javax.persistence.Column;
+import javax.persistence.Embedded;
+import javax.persistence.Entity;
+import javax.persistence.EntityListeners;
+import javax.persistence.FetchType;
+import javax.persistence.GeneratedValue;
+import javax.persistence.GenerationType;
+import javax.persistence.Id;
+import javax.persistence.JoinColumn;
+import javax.persistence.ManyToOne;
+import javax.persistence.Table;
+import javax.persistence.TableGenerator;
+import javax.persistence.Temporal;
+import javax.persistence.TemporalType;
+import javax.persistence.UniqueConstraint;
+
+import com.salesmanager.core.constants.SchemaConstant;
+import com.salesmanager.core.model.common.audit.AuditListener;
+import com.salesmanager.core.model.common.audit.AuditSection;
+import com.salesmanager.core.model.common.audit.Auditable;
+import com.salesmanager.core.model.generic.SalesManagerEntity;
+import com.salesmanager.core.model.merchant.MerchantStore;
+import com.salesmanager.core.model.user.User;
+
+@Entity
+@EntityListeners(value = AuditListener.class)
+
+@Table(name = "SYSTEM_NOTIFICATION",uniqueConstraints=
+    @UniqueConstraint(columnNames = {"MERCHANT_ID", "CONFIG_KEY"}) )
+public class SystemNotification extends SalesManagerEntity<Long, SystemNotification> implements Serializable, Auditable {
+
+	/**
+	 * 
+	 */
+	private static final long serialVersionUID = -6269172313628887000L;
+
+	@Id
+	@Column(name = "SYSTEM_NOTIF_ID")
+	@TableGenerator(name = "TABLE_GEN", table = "SM_SEQUENCER", pkColumnName = "SEQ_NAME", valueColumnName = "SEQ_COUNT", pkColumnValue = "SYST_NOTIF_SEQ_NEXT_VAL")
+	@GeneratedValue(strategy = GenerationType.TABLE, generator = "TABLE_GEN")
+	private Long id;
+	
+	@Column(name="CONFIG_KEY")
+	private String key;
+	
+	@Column(name="VALUE")
+	private String value;
+	
+	@ManyToOne(fetch = FetchType.LAZY)
+	@JoinColumn(name="MERCHANT_ID", nullable=true)
+	private MerchantStore merchantStore;
+	
+	@ManyToOne(fetch = FetchType.LAZY)
+	@JoinColumn(name="USER_ID", nullable=true)
+	private User user;
+	
+	@Temporal(TemporalType.DATE)
+	@Column(name = "START_DATE")
+	private Date startDate;
+	
+	@Temporal(TemporalType.DATE)
+	@Column(name = "END_DATE")
+	private Date endDate;
+	
+	@Embedded
+	private AuditSection auditSection = new AuditSection();
+
+	public AuditSection getAuditSection() {
+		return auditSection;
+	}
+
+	public void setAuditSection(AuditSection auditSection) {
+		this.auditSection = auditSection;
+	}
+
+	@Override
+	public Long getId() {
+		return id;
+	}
+
+	@Override
+	public void setId(Long id) {
+		this.id = id;
+	}
+
+	public String getKey() {
+		return key;
+	}
+
+	public void setKey(String key) {
+		this.key = key;
+	}
+
+	public String getValue() {
+		return value;
+	}
+
+	public void setValue(String value) {
+		this.value = value;
+	}
+
+	public void setStartDate(Date startDate) {
+		this.startDate = startDate;
+	}
+
+	public Date getStartDate() {
+		return startDate;
+	}
+
+	public void setMerchantStore(MerchantStore merchantStore) {
+		this.merchantStore = merchantStore;
+	}
+
+	public MerchantStore getMerchantStore() {
+		return merchantStore;
+	}
+
+	public void setEndDate(Date endDate) {
+		this.endDate = endDate;
+	}
+
+	public Date getEndDate() {
+		return endDate;
+	}
+
+	public void setUser(User user) {
+		this.user = user;
+	}
+
+	public User getUser() {
+		return user;
+	}
+}
+
+
+
+```
